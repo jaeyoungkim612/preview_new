@@ -11,15 +11,22 @@ export async function POST(request: NextRequest) {
     console.log("  - P-List 개수:", data.pList?.length || 0);
     console.log("  - P-List 샘플:", data.pList?.[0]);
 
-    // 오더 번호 생성 (WO-YYMMDD-XXX 형식)
+    // 오더 번호 생성 (WO-YYMMDD-HHMMSS-XXX 형식)
     const now = new Date()
     const year = String(now.getFullYear()).slice(2) // 26 (2026)
     const month = String(now.getMonth() + 1).padStart(2, '0')
     const day = String(now.getDate()).padStart(2, '0')
+    const hours = String(now.getHours()).padStart(2, '0')
+    const minutes = String(now.getMinutes()).padStart(2, '0')
+    const seconds = String(now.getSeconds()).padStart(2, '0')
     const dateStr = `${year}${month}${day}` // 260202
+    const timeStr = `${hours}${minutes}${seconds}` // 143055
     
-    const count = await db.countOrdersByPattern(`WO-${dateStr}-%`);
-    const orderNo = `WO-${dateStr}-${String(count + 1).padStart(3, "0")}`;
+    // 같은 초에 여러 오더가 생성될 경우를 대비한 카운터
+    const count = await db.countOrdersByPattern(`WO-${dateStr}-${timeStr}-%`);
+    const orderNo = `WO-${dateStr}-${timeStr}-${String(count + 1).padStart(2, "0")}`;
+
+    console.log("📦 생성될 오더 번호:", orderNo);
 
     // PDF가 있으면 Storage에 업로드
     let pdfUrl = null;

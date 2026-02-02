@@ -1,71 +1,105 @@
-import { sql } from '@vercel/postgres';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// 이미지 업로드 헬퍼 함수
+export async function uploadImageToStorage(base64Data: string, fileName: string): Promise<string | null> {
+  try {
+    // base64를 Blob으로 변환
+    const base64Match = base64Data.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!base64Match) {
+      throw new Error('Invalid base64 format');
+    }
+
+    const [, imageType, base64Content] = base64Match;
+    const binaryString = atob(base64Content);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: `image/${imageType}` });
+
+    // Supabase Storage에 업로드
+    const filePath = `${Date.now()}_${fileName}`;
+    const { data, error } = await supabase.storage
+      .from('workorder-images')
+      .upload(filePath, blob, {
+        contentType: `image/${imageType}`,
+        cacheControl: '3600',
+        upsert: false
+      });
+
+    if (error) {
+      console.error('Storage upload error:', error);
+      return null;
+    }
+
+    // Public URL 가져오기
+    const { data: urlData } = supabase.storage
+      .from('workorder-images')
+      .getPublicUrl(filePath);
+
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error('Image upload error:', error);
+    return null;
+  }
+}
+
+// PDF 업로드 헬퍼 함수
+export async function uploadPdfToStorage(base64Data: string, fileName: string): Promise<string | null> {
+  try {
+    // base64를 Blob으로 변환
+    const base64Match = base64Data.match(/^data:application\/pdf;base64,(.+)$/);
+    if (!base64Match) {
+      throw new Error('Invalid PDF base64 format');
+    }
+
+    const base64Content = base64Match[1];
+    const binaryString = atob(base64Content);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+
+    // Supabase Storage에 업로드
+    const filePath = `${Date.now()}_${fileName}`;
+    const { data, error } = await supabase.storage
+      .from('workorder-images')
+      .upload(filePath, blob, {
+        contentType: 'application/pdf',
+        cacheControl: '3600',
+        upsert: false
+      });
+
+    if (error) {
+      console.error('PDF upload error:', error);
+      return null;
+    }
+
+    // Public URL 가져오기
+    const { data: urlData } = supabase.storage
+      .from('workorder-images')
+      .getPublicUrl(filePath);
+
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error('PDF upload error:', error);
+    return null;
+  }
+}
 
 // 테이블 초기화 함수
 export async function initDB() {
   try {
     // work_orders 테이블 생성
-    await sql`
-      CREATE TABLE IF NOT EXISTS work_orders (
-        id SERIAL PRIMARY KEY,
-        order_no TEXT UNIQUE,
-        brand TEXT,
-        style_no TEXT,
-        style_name TEXT,
-        season TEXT,
-        ds_manager TEXT,
-        md_manager TEXT,
-        total_qty INTEGER,
-        fabric_spec TEXT,
-        fabric_composition TEXT,
-        inbound_date TEXT,
-        ship_country TEXT,
-        production_country TEXT,
-        notes TEXT,
-        pdf_data TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    // order_sizes 테이블 생성
-    await sql`
-      CREATE TABLE IF NOT EXISTS order_sizes (
-        id SERIAL PRIMARY KEY,
-        order_id INTEGER REFERENCES work_orders(id) ON DELETE CASCADE,
-        size TEXT,
-        qty INTEGER
-      )
-    `;
-
-    // p_list 테이블 생성
-    await sql`
-      CREATE TABLE IF NOT EXISTS p_list (
-        id SERIAL PRIMARY KEY,
-        order_id INTEGER REFERENCES work_orders(id) ON DELETE CASCADE,
-        material_name TEXT,
-        code TEXT,
-        supplier TEXT,
-        size TEXT,
-        qty TEXT,
-        placement TEXT
-      )
-    `;
-
-    // order_captures 테이블 생성
-    await sql`
-      CREATE TABLE IF NOT EXISTS order_captures (
-        id SERIAL PRIMARY KEY,
-        order_id INTEGER REFERENCES work_orders(id) ON DELETE CASCADE,
-        image_data TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    // 인덱스 생성
-    await sql`CREATE INDEX IF NOT EXISTS idx_order_no ON work_orders(order_no)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_style_no ON work_orders(style_no)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_capture_order_id ON order_captures(order_id)`;
-
-    console.log('✅ Postgres DB 초기화 완료');
+    const { error: workOrdersError } = await supabase.rpc('create_work_orders_table', {});
+    
+    console.log('✅ Supabase DB 초기화 완료');
   } catch (error) {
     console.error('❌ DB 초기화 오류:', error);
   }
@@ -75,78 +109,169 @@ export async function initDB() {
 export const db = {
   // 작업지시서 생성
   async createWorkOrder(data: any) {
-    const result = await sql`
-      INSERT INTO work_orders (
-        order_no, brand, style_no, style_name, season,
-        ds_manager, md_manager, total_qty, fabric_spec, fabric_composition,
-        inbound_date, ship_country, production_country, notes, pdf_data
-      ) VALUES (
-        ${data.orderNo}, ${data.brand}, ${data.styleNo}, ${data.styleName}, ${data.season},
-        ${data.dsManager}, ${data.mdManager}, ${data.totalQty}, ${data.fabricSpec}, ${data.fabricComposition},
-        ${data.inboundDate}, ${data.shipCountry}, ${data.productionCountry}, ${data.notes}, ${data.pdfData}
-      )
-      RETURNING id
-    `;
-    return result.rows[0];
+    const { data: result, error } = await supabase
+      .from('work_orders')
+      .insert([{
+        order_no: data.orderNo,
+        brand: data.brand,
+        style_no: data.styleNo,
+        style_name: data.styleName,
+        season: data.season,
+        ds_manager: data.dsManager,
+        md_manager: data.mdManager,
+        total_qty: data.totalQty,
+        fabric_spec: data.fabricSpec,
+        fabric_composition: data.fabricComposition,
+        inbound_date: data.inboundDate,
+        ship_country: data.shipCountry,
+        production_country: data.productionCountry,
+        notes: data.notes,
+        pdf_data: data.pdfData
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return result;
   },
 
   // 사이즈 추가
   async addOrderSizes(orderId: number, sizes: Array<{ size: string; qty: number }>) {
-    for (const size of sizes) {
-      await sql`
-        INSERT INTO order_sizes (order_id, size, qty)
-        VALUES (${orderId}, ${size.size}, ${size.qty})
-      `;
-    }
+    const sizesData = sizes.map(size => ({
+      order_id: orderId,
+      size: size.size,
+      qty: size.qty
+    }));
+
+    const { error } = await supabase
+      .from('order_sizes')
+      .insert(sizesData);
+
+    if (error) throw error;
   },
 
   // P-List 추가
   async addPList(orderId: number, items: Array<any>) {
-    for (const item of items) {
-      await sql`
-        INSERT INTO p_list (order_id, material_name, code, supplier, size, qty, placement)
-        VALUES (${orderId}, ${item.materialName}, ${item.code}, ${item.supplier}, ${item.size}, ${item.qty}, ${item.placement})
-      `;
-    }
+    const pListData = items.map(item => ({
+      order_id: orderId,
+      material_name: item.materialName,
+      code: item.code,
+      supplier: item.supplier,
+      size: item.size,
+      qty: item.qty,
+      placement: item.placement
+    }));
+
+    const { error } = await supabase
+      .from('p_list')
+      .insert(pListData);
+
+    if (error) throw error;
   },
 
   // 모든 작업지시서 조회
   async getAllWorkOrders() {
-    const result = await sql`
-      SELECT * FROM work_orders
-      ORDER BY created_at DESC
-    `;
-    return result.rows;
+    const { data, error } = await supabase
+      .from('work_orders')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
   },
 
   // 작업지시서 상세 조회
   async getWorkOrderById(id: number) {
-    const orderResult = await sql`
-      SELECT * FROM work_orders WHERE id = ${id}
-    `;
-    
-    if (orderResult.rows.length === 0) return null;
+    const { data: order, error: orderError } = await supabase
+      .from('work_orders')
+      .select('*')
+      .eq('id', id)
+      .single();
 
-    const order = orderResult.rows[0];
+    if (orderError) throw orderError;
+    if (!order) return null;
 
-    const sizesResult = await sql`
-      SELECT size, qty FROM order_sizes WHERE order_id = ${id}
-    `;
+    const { data: sizes, error: sizesError } = await supabase
+      .from('order_sizes')
+      .select('size, qty')
+      .eq('order_id', id);
 
-    const pListResult = await sql`
-      SELECT * FROM p_list WHERE order_id = ${id}
-    `;
+    if (sizesError) throw sizesError;
+
+    const { data: pList, error: pListError } = await supabase
+      .from('p_list')
+      .select('*')
+      .eq('order_id', id);
+
+    if (pListError) throw pListError;
 
     return {
       ...order,
-      sizes: sizesResult.rows,
-      pList: pListResult.rows
+      sizes: sizes || [],
+      pList: pList || []
     };
+  },
+
+  // 작업지시서 번호로 조회
+  async getWorkOrderByOrderNo(orderNo: string) {
+    const { data: order, error: orderError } = await supabase
+      .from('work_orders')
+      .select('*')
+      .eq('order_no', orderNo)
+      .single();
+
+    if (orderError) throw orderError;
+    if (!order) return null;
+
+    const { data: sizes, error: sizesError } = await supabase
+      .from('order_sizes')
+      .select('*')
+      .eq('order_id', order.id);
+
+    if (sizesError) throw sizesError;
+
+    const { data: pList, error: pListError } = await supabase
+      .from('p_list')
+      .select('*')
+      .eq('order_id', order.id);
+
+    if (pListError) throw pListError;
+
+    const { data: captures, error: capturesError } = await supabase
+      .from('order_captures')
+      .select('image_data')
+      .eq('order_id', order.id)
+      .order('id');
+
+    if (capturesError) throw capturesError;
+
+    return {
+      ...order,
+      sizes: sizes || [],
+      pList: pList || [],
+      captureImages: captures?.map(c => c.image_data) || []
+    };
+  },
+
+  // 오더 번호로 개수 조회
+  async countOrdersByPattern(pattern: string) {
+    const { count, error } = await supabase
+      .from('work_orders')
+      .select('*', { count: 'exact', head: true })
+      .like('order_no', pattern);
+
+    if (error) throw error;
+    return count || 0;
   },
 
   // 작업지시서 삭제
   async deleteWorkOrder(id: number) {
-    await sql`DELETE FROM work_orders WHERE id = ${id}`;
+    const { error } = await supabase
+      .from('work_orders')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
   }
 };
 

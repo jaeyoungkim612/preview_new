@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db, initDB } from "@/lib/db"
-import { sql } from '@vercel/postgres'
+import { db } from "@/lib/db"
+import { supabase } from "@/lib/db"
 
 export const dynamic = "force-dynamic"
 
 export async function DELETE(request: NextRequest) {
   try {
-    await initDB();
-
     const { searchParams } = new URL(request.url)
     const orderNo = searchParams.get("orderNo")
 
@@ -19,19 +17,21 @@ export async function DELETE(request: NextRequest) {
     }
 
     // 오더 조회
-    const orderResult = await sql`SELECT id FROM work_orders WHERE order_no = ${orderNo}`;
+    const { data: order, error: fetchError } = await supabase
+      .from('work_orders')
+      .select('id')
+      .eq('order_no', orderNo)
+      .single();
 
-    if (orderResult.rows.length === 0) {
+    if (fetchError || !order) {
       return NextResponse.json(
         { success: false, error: "오더를 찾을 수 없습니다" },
         { status: 404 }
       )
     }
 
-    const orderId = orderResult.rows[0].id;
-
     // 오더 삭제 (CASCADE로 관련 데이터도 함께 삭제)
-    await db.deleteWorkOrder(orderId);
+    await db.deleteWorkOrder(order.id);
 
     console.log("✅ 오더 삭제 완료:", orderNo)
 

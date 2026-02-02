@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db, initDB } from "@/lib/db"
-import { sql } from '@vercel/postgres'
+import { db, supabase, uploadImageToStorage, uploadPdfToStorage } from "@/lib/db"
 
 export const dynamic = "force-dynamic"
 
 export async function POST(request: NextRequest) {
   try {
-    // DB 초기화
-    await initDB();
-
     const data = await request.json()
 
     console.log("📥 받은 오더 데이터:");
@@ -20,17 +16,23 @@ export async function POST(request: NextRequest) {
     const year = String(now.getFullYear()).slice(2) // 26 (2026)
     const month = String(now.getMonth() + 1).padStart(2, '0')
     const day = String(now.getDate()).padStart(2, '0')
-    const dateStr = `${year}${month}${day}` // 260128
+    const dateStr = `${year}${month}${day}` // 260202
     
-    const countResult = await sql`
-      SELECT COUNT(*) as count FROM work_orders 
-      WHERE order_no LIKE ${'WO-' + dateStr + '-%'}
-    `;
-    const count = parseInt(countResult.rows[0].count);
+    const count = await db.countOrdersByPattern(`WO-${dateStr}-%`);
     const orderNo = `WO-${dateStr}-${String(count + 1).padStart(3, "0")}`;
 
+    // PDF가 있으면 Storage에 업로드
+    let pdfUrl = null;
+    if (data.pdfData) {
+      console.log("📄 PDF 업로드 시작...");
+      pdfUrl = await uploadPdfToStorage(data.pdfData, `${orderNo}.pdf`);
+      if (pdfUrl) {
+        console.log("✅ PDF 업로드 완료:", pdfUrl);
+      }
+    }
+
     // 1. 오더 기본 정보 삽입
-    const orderResult = await db.createWorkOrder({
+    const order = await db.createWorkOrder({
       orderNo,
       brand: data.brand || "",
       styleNo: data.styleNo || "",
@@ -45,10 +47,10 @@ export async function POST(request: NextRequest) {
       shipCountry: data.shipCountry || "",
       productionCountry: data.productionCountry || "",
       notes: data.notes || "",
-      pdfData: data.pdfData || null
+      pdfData: pdfUrl || null // Storage URL 저장
     });
 
-    const orderId = orderResult.id;
+    const orderId = order.id;
 
     // 2. 사이즈 정보 삽입
     if (data.sizes && Array.isArray(data.sizes)) {
@@ -64,12 +66,37 @@ export async function POST(request: NextRequest) {
       console.log("⚠️ P-List가 없거나 배열이 아님:", data.pList);
     }
 
-    // 4. 캡쳐 이미지 삽입 (TODO: 캡처 기능 추가 시 구현)
-    // if (data.captureImages && Array.isArray(data.captureImages)) {
-    //   for (const imageData of data.captureImages) {
-    //     await sql`INSERT INTO order_captures (order_id, image_data) VALUES (${orderId}, ${imageData})`;
-    //   }
-    // }
+    // 4. 캡쳐 이미지 업로드 및 URL 저장
+    if (data.captureImages && Array.isArray(data.captureImages)) {
+      console.log(`📸 캡처 이미지 업로드 시작: ${data.captureImages.length}개`);
+      
+      const uploadPromises = data.captureImages.map(async (imageData: string, index: number) => {
+        const fileName = `order_${orderNo}_capture_${index + 1}.png`;
+        const imageUrl = await uploadImageToStorage(imageData, fileName);
+        
+        if (imageUrl) {
+          return {
+            order_id: orderId,
+            image_data: imageUrl // Storage URL 저장
+          };
+        }
+        return null;
+      });
+
+      const capturesData = (await Promise.all(uploadPromises)).filter(Boolean);
+      
+      if (capturesData.length > 0) {
+        const { error: capturesError } = await supabase
+          .from('order_captures')
+          .insert(capturesData);
+        
+        if (capturesError) {
+          console.warn("⚠️ 캡처 이미지 저장 실패:", capturesError);
+        } else {
+          console.log(`✅ 캡처 이미지 ${capturesData.length}개 업로드 완료`);
+        }
+      }
+    }
 
     console.log("✅ 오더 생성 완료:", orderNo, "ID:", orderId)
 
@@ -90,43 +117,22 @@ export async function POST(request: NextRequest) {
 // 오더 목록 조회
 export async function GET(request: NextRequest) {
   try {
-    await initDB();
-
     const { searchParams } = new URL(request.url)
     const orderNo = searchParams.get("orderNo")
 
     if (orderNo) {
       // 특정 오더 조회
-      const orderResult = await sql`SELECT * FROM work_orders WHERE order_no = ${orderNo}`;
+      const order = await db.getWorkOrderByOrderNo(orderNo);
       
-      if (orderResult.rows.length === 0) {
+      if (!order) {
         return NextResponse.json({ error: "오더를 찾을 수 없습니다" }, { status: 404 })
       }
 
-      const order = orderResult.rows[0];
-
-      // 사이즈 정보
-      const sizesResult = await sql`SELECT * FROM order_sizes WHERE order_id = ${order.id}`;
-      const sizes = sizesResult.rows;
-
-      // P-List
-      const pListResult = await sql`SELECT * FROM p_list WHERE order_id = ${order.id}`;
-      const pList = pListResult.rows;
-
-      // 캡처 이미지들
-      const captureResult = await sql`SELECT image_data FROM order_captures WHERE order_id = ${order.id} ORDER BY id`;
-      const captureImages = captureResult.rows.map((img: any) => img.image_data);
-
-      return NextResponse.json({
-        ...order,
-        sizes,
-        pList,
-        captureImages,
-      })
+      return NextResponse.json(order);
     } else {
       // 전체 오더 목록
-      const ordersResult = await sql`SELECT * FROM work_orders ORDER BY created_at DESC LIMIT 100`;
-      return NextResponse.json(ordersResult.rows);
+      const orders = await db.getAllWorkOrders();
+      return NextResponse.json(orders);
     }
   } catch (error: any) {
     console.error("❌ 오더 조회 실패:", error)

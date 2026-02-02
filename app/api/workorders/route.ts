@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server"
-import { db, initDB } from "@/lib/db"
+import { db } from "@/lib/db"
 
 export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {
-    // DB 초기화 (테이블이 없으면 생성)
-    await initDB();
-
     // 작업지시서 목록 조회
     const orders = await db.getAllWorkOrders();
 

@@ -48,17 +48,28 @@ export async function uploadImageToStorage(base64Data: string, fileName: string)
 // PDF 업로드 헬퍼 함수
 export async function uploadPdfToStorage(base64Data: string, fileName: string): Promise<string | null> {
   try {
+    console.log('📄 PDF 업로드 시작, 데이터 길이:', base64Data.length);
+    
     // base64를 Buffer로 변환 (Node.js 환경)
-    const base64Match = base64Data.match(/^data:application\/pdf;base64,(.+)$/);
-    if (!base64Match) {
-      throw new Error('Invalid PDF base64 format');
+    // 다양한 형식 지원: data:application/pdf;base64, 또는 순수 base64
+    let base64Content = base64Data;
+    
+    // data URL 형식인 경우 base64 부분만 추출
+    if (base64Data.startsWith('data:')) {
+      const base64Match = base64Data.match(/^data:[^;]+;base64,(.+)$/);
+      if (base64Match) {
+        base64Content = base64Match[1];
+      } else {
+        console.error('❌ PDF base64 형식 오류. 받은 데이터 앞부분:', base64Data.substring(0, 100));
+        throw new Error('Invalid PDF base64 format');
+      }
     }
 
-    const base64Content = base64Match[1];
     const buffer = Buffer.from(base64Content, 'base64');
+    console.log('✅ Buffer 변환 완료, 크기:', buffer.length, 'bytes');
 
     // Supabase Storage에 업로드
-    const filePath = `${Date.now()}_${fileName}`;
+    const filePath = `pdfs/${Date.now()}_${fileName}`;
     const { data, error } = await supabase.storage
       .from('workorder-images')
       .upload(filePath, buffer, {
@@ -68,7 +79,7 @@ export async function uploadPdfToStorage(base64Data: string, fileName: string): 
       });
 
     if (error) {
-      console.error('PDF upload error:', error);
+      console.error('❌ Storage upload error:', error);
       return null;
     }
 
@@ -80,7 +91,7 @@ export async function uploadPdfToStorage(base64Data: string, fileName: string): 
     console.log('✅ PDF 업로드 성공:', urlData.publicUrl);
     return urlData.publicUrl;
   } catch (error) {
-    console.error('PDF upload error:', error);
+    console.error('❌ PDF upload error:', error);
     return null;
   }
 }

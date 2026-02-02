@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
-import db from "@/lib/db"
+import { db, initDB } from "@/lib/db"
+import { sql } from '@vercel/postgres'
 
 export const dynamic = "force-dynamic"
 
 export async function POST(request: NextRequest) {
   try {
+    // DB 초기화
+    await initDB();
+
     const data = await request.json()
 
     console.log("📥 받은 오더 데이터:");
@@ -18,105 +22,54 @@ export async function POST(request: NextRequest) {
     const day = String(now.getDate()).padStart(2, '0')
     const dateStr = `${year}${month}${day}` // 260128
     
-    const countStmt = db.prepare(`
+    const countResult = await sql`
       SELECT COUNT(*) as count FROM work_orders 
-      WHERE order_no LIKE ?
-    `)
-    const { count } = countStmt.get(`WO-${dateStr}-%`) as { count: number }
-    const orderNo = `WO-${dateStr}-${String(count + 1).padStart(3, "0")}`
+      WHERE order_no LIKE ${'WO-' + dateStr + '-%'}
+    `;
+    const count = parseInt(countResult.rows[0].count);
+    const orderNo = `WO-${dateStr}-${String(count + 1).padStart(3, "0")}`;
 
-    // 트랜잭션 시작
-    const insertOrder = db.transaction((orderData: any) => {
-      // 1. 오더 기본 정보 삽입 (PDF 포함)
-      const insertOrderStmt = db.prepare(`
-        INSERT INTO work_orders (
-          order_no, brand, style_no, style_name, season,
-          ds_manager, md_manager, total_qty, fabric_spec, fabric_composition,
-          inbound_date, ship_country, production_country, notes, pdf_data
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
+    // 1. 오더 기본 정보 삽입
+    const orderResult = await db.createWorkOrder({
+      orderNo,
+      brand: data.brand || "",
+      styleNo: data.styleNo || "",
+      styleName: data.styleName || "",
+      season: data.season || "",
+      dsManager: data.dsManager || "",
+      mdManager: data.mdManager || "",
+      totalQty: data.totalQty || 0,
+      fabricSpec: data.fabricSpec || "",
+      fabricComposition: data.fabricComposition || "",
+      inboundDate: data.inboundDate || "",
+      shipCountry: data.shipCountry || "",
+      productionCountry: data.productionCountry || "",
+      notes: data.notes || "",
+      pdfData: data.pdfData || null
+    });
 
-      const result = insertOrderStmt.run(
-        orderNo,
-        orderData.brand || "",
-        orderData.styleNo || "",
-        orderData.styleName || "",
-        orderData.season || "",
-        orderData.dsManager || "",
-        orderData.mdManager || "",
-        orderData.totalQty || 0,
-        orderData.fabricSpec || "",
-        orderData.fabricComposition || "",
-        orderData.inboundDate || "",
-        orderData.shipCountry || "",
-        orderData.productionCountry || "",
-        orderData.notes || "",
-        orderData.pdfData || null
-      )
+    const orderId = orderResult.id;
 
-      const orderId = result.lastInsertRowid
+    // 2. 사이즈 정보 삽입
+    if (data.sizes && Array.isArray(data.sizes)) {
+      await db.addOrderSizes(orderId, data.sizes);
+    }
 
-      // 2. 사이즈 정보 삽입
-      if (orderData.sizes && Array.isArray(orderData.sizes)) {
-        const insertSizeStmt = db.prepare(`
-          INSERT INTO order_sizes (order_id, size, qty)
-          VALUES (?, ?, ?)
-        `)
+    // 3. P-List (자재 리스트) 삽입
+    if (data.pList && Array.isArray(data.pList)) {
+      console.log(`💾 P-List 저장 시작: ${data.pList.length}개 항목`);
+      await db.addPList(orderId, data.pList);
+      console.log(`✅ P-List ${data.pList.length}개 저장 완료`);
+    } else {
+      console.log("⚠️ P-List가 없거나 배열이 아님:", data.pList);
+    }
 
-        for (const size of orderData.sizes) {
-          insertSizeStmt.run(orderId, size.size, size.qty)
-        }
-      }
-
-      // 3. P-List (자재 리스트) 삽입
-      if (orderData.pList && Array.isArray(orderData.pList)) {
-        console.log(`💾 P-List 저장 시작: ${orderData.pList.length}개 항목`);
-        const insertPListStmt = db.prepare(`
-          INSERT INTO p_list (
-            order_id, material_name, code, supplier, size, qty, placement
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        `)
-
-        for (const item of orderData.pList) {
-          console.log(`  - 항목 저장:`, {
-            materialName: item.materialName,
-            code: item.code,
-            supplier: item.supplier,
-            size: item.size,
-            qty: item.qty,
-            placement: item.placement
-          });
-          insertPListStmt.run(
-            orderId,
-            item.materialName || "",
-            item.code || "",
-            item.supplier || "",
-            item.size || "",
-            item.qty || "",
-            item.placement || ""
-          )
-        }
-        console.log(`✅ P-List ${orderData.pList.length}개 저장 완료`);
-      } else {
-        console.log("⚠️ P-List가 없거나 배열이 아님:", orderData.pList);
-      }
-
-      // 4. 캡쳐 이미지 삽입
-      if (orderData.captureImages && Array.isArray(orderData.captureImages)) {
-        const insertCaptureStmt = db.prepare(`
-          INSERT INTO order_captures (order_id, image_data)
-          VALUES (?, ?)
-        `)
-
-        for (const imageData of orderData.captureImages) {
-          insertCaptureStmt.run(orderId, imageData)
-        }
-      }
-
-      return orderId
-    })
-
-    const orderId = insertOrder(data)
+    // 4. 캡쳐 이미지 삽입 (TODO: 캡처 기능 추가 시 구현)
+    // if (data.captureImages && Array.isArray(data.captureImages)) {
+    //   for (const imageData of data.captureImages) {
+    //     await sql`INSERT INTO order_captures (order_id, image_data) VALUES (${orderId}, ${imageData})`;
+    //   }
+    // }
 
     console.log("✅ 오더 생성 완료:", orderNo, "ID:", orderId)
 
@@ -137,47 +90,43 @@ export async function POST(request: NextRequest) {
 // 오더 목록 조회
 export async function GET(request: NextRequest) {
   try {
+    await initDB();
+
     const { searchParams } = new URL(request.url)
     const orderNo = searchParams.get("orderNo")
 
     if (orderNo) {
       // 특정 오더 조회
-      const order = db
-        .prepare("SELECT * FROM work_orders WHERE order_no = ?")
-        .get(orderNo)
-
-      if (!order) {
+      const orderResult = await sql`SELECT * FROM work_orders WHERE order_no = ${orderNo}`;
+      
+      if (orderResult.rows.length === 0) {
         return NextResponse.json({ error: "오더를 찾을 수 없습니다" }, { status: 404 })
       }
 
+      const order = orderResult.rows[0];
+
       // 사이즈 정보
-      const sizes = db
-        .prepare("SELECT * FROM order_sizes WHERE order_id = ?")
-        .all((order as any).id)
+      const sizesResult = await sql`SELECT * FROM order_sizes WHERE order_id = ${order.id}`;
+      const sizes = sizesResult.rows;
 
       // P-List
-      const pList = db
-        .prepare("SELECT * FROM p_list WHERE order_id = ?")
-        .all((order as any).id)
+      const pListResult = await sql`SELECT * FROM p_list WHERE order_id = ${order.id}`;
+      const pList = pListResult.rows;
 
       // 캡처 이미지들
-      const captureImages = db
-        .prepare("SELECT image_data FROM order_captures WHERE order_id = ? ORDER BY id")
-        .all((order as any).id)
+      const captureResult = await sql`SELECT image_data FROM order_captures WHERE order_id = ${order.id} ORDER BY id`;
+      const captureImages = captureResult.rows.map((img: any) => img.image_data);
 
       return NextResponse.json({
         ...order,
         sizes,
         pList,
-        captureImages: captureImages.map((img: any) => img.image_data),
+        captureImages,
       })
     } else {
       // 전체 오더 목록
-      const orders = db
-        .prepare("SELECT * FROM work_orders ORDER BY created_at DESC LIMIT 100")
-        .all()
-
-      return NextResponse.json(orders)
+      const ordersResult = await sql`SELECT * FROM work_orders ORDER BY created_at DESC LIMIT 100`;
+      return NextResponse.json(ordersResult.rows);
     }
   } catch (error: any) {
     console.error("❌ 오더 조회 실패:", error)

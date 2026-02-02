@@ -8,25 +8,20 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // 이미지 업로드 헬퍼 함수
 export async function uploadImageToStorage(base64Data: string, fileName: string): Promise<string | null> {
   try {
-    // base64를 Blob으로 변환
+    // base64를 Buffer로 변환 (Node.js 환경)
     const base64Match = base64Data.match(/^data:image\/(\w+);base64,(.+)$/);
     if (!base64Match) {
       throw new Error('Invalid base64 format');
     }
 
     const [, imageType, base64Content] = base64Match;
-    const binaryString = atob(base64Content);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    const blob = new Blob([bytes], { type: `image/${imageType}` });
+    const buffer = Buffer.from(base64Content, 'base64');
 
     // Supabase Storage에 업로드
     const filePath = `${Date.now()}_${fileName}`;
     const { data, error } = await supabase.storage
       .from('workorder-images')
-      .upload(filePath, blob, {
+      .upload(filePath, buffer, {
         contentType: `image/${imageType}`,
         cacheControl: '3600',
         upsert: false
@@ -42,6 +37,7 @@ export async function uploadImageToStorage(base64Data: string, fileName: string)
       .from('workorder-images')
       .getPublicUrl(filePath);
 
+    console.log('✅ 이미지 업로드 성공:', urlData.publicUrl);
     return urlData.publicUrl;
   } catch (error) {
     console.error('Image upload error:', error);
@@ -52,25 +48,20 @@ export async function uploadImageToStorage(base64Data: string, fileName: string)
 // PDF 업로드 헬퍼 함수
 export async function uploadPdfToStorage(base64Data: string, fileName: string): Promise<string | null> {
   try {
-    // base64를 Blob으로 변환
+    // base64를 Buffer로 변환 (Node.js 환경)
     const base64Match = base64Data.match(/^data:application\/pdf;base64,(.+)$/);
     if (!base64Match) {
       throw new Error('Invalid PDF base64 format');
     }
 
     const base64Content = base64Match[1];
-    const binaryString = atob(base64Content);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    const blob = new Blob([bytes], { type: 'application/pdf' });
+    const buffer = Buffer.from(base64Content, 'base64');
 
     // Supabase Storage에 업로드
     const filePath = `${Date.now()}_${fileName}`;
     const { data, error } = await supabase.storage
       .from('workorder-images')
-      .upload(filePath, blob, {
+      .upload(filePath, buffer, {
         contentType: 'application/pdf',
         cacheControl: '3600',
         upsert: false
@@ -86,6 +77,7 @@ export async function uploadPdfToStorage(base64Data: string, fileName: string): 
       .from('workorder-images')
       .getPublicUrl(filePath);
 
+    console.log('✅ PDF 업로드 성공:', urlData.publicUrl);
     return urlData.publicUrl;
   } catch (error) {
     console.error('PDF upload error:', error);

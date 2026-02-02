@@ -1,0 +1,48 @@
+[
+  {
+    "id": "INS-001",
+    "orderNo": "WO-260127-015",
+    "styleNo": "BKMTM5106",
+    "styleName": "G FABRIC CAMEL",
+    "factory": "Vietnam ND",
+    "inspectionDate": "2026-01-26",
+    "totalQty": 2800,
+    "passQty": 2750,
+    "defectQty": 50,
+    "passRate": 98.21,
+    "majorDefects": 12,
+    "minorDefects": 38,
+    "status": "합격",
+    "inspector": "품질팀 김철수",
+    "defectDetails": [
+      { "type": "봉제불량", "count": 15 },
+      { "type": "오염", "count": 8 },
+      { "type": "사이즈", "count": 12 },
+      { "type": "기타", "count": 15 }
+    ],
+    "remarks": "전체적으로 양호한 품질"
+  },
+  {
+    "id": "INS-002",
+    "orderNo": "WO-260125-008",
+    "styleNo": "HGKTP5202",
+    "styleName": "남성 기능성 팬츠",
+    "factory": "Vietnam ND",
+    "inspectionDate": "2026-01-25",
+    "totalQty": 4200,
+    "passQty": 4100,
+    "defectQty": 100,
+    "passRate": 97.62,
+    "majorDefects": 25,
+    "minorDefects": 75,
+    "status": "합격",
+    "inspector": "품질팀 이영희",
+    "defectDetails": [
+      { "type": "봉제불량", "count": 35 },
+      { "type": "오염", "count": 20 },
+      { "type": "사이즈", "count": 25 },
+      { "type": "기타", "count": 20 }
+    ],
+    "remarks": "일부 봉제 재작업 필요"
+  }
+]

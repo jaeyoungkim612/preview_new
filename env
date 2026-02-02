@@ -1,0 +1,11 @@
+# 이 파일은 예시입니다. 실제 사용시 .env.local 파일을 만들어 사용하세요.
+
+# OpenAI API 설정
+OPENAI_API_KEY=your-openai-api-key-here
+
+# PWC API 설정 (선택)
+PWC_API_KEY=your-pwc-api-key-here
+PWC_MODEL_NAME=bedrock.anthropic.claude-sonnet-4
+CHAT_COMPLETION_API_URL=https://genai-sharedservice-americas.pwcinternal.com
+BASE_URL=https://genai-sharedservice-americas.pwcinternal.com
+LLM_MODEL=vertex_ai.gemini-3-flash-preview

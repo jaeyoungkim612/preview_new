@@ -1,0 +1,53 @@
+[
+  {
+    "id": "PROD-001",
+    "orderNo": "WO-260128-001",
+    "styleNo": "MSF4PP2505",
+    "styleName": "여성) 컴포트 부츠컷 슬랙스",
+    "factory": "Vietnam ND",
+    "line": "Line 1",
+    "startDate": "2026-01-21",
+    "targetQty": 5500,
+    "producedQty": 3800,
+    "defectQty": 45,
+    "passQty": 3755,
+    "progress": 69,
+    "status": "생산중",
+    "expectedDate": "2026-01-28",
+    "remarks": "순조롭게 진행 중"
+  },
+  {
+    "id": "PROD-002",
+    "orderNo": "WO-260128-002",
+    "styleNo": "WPPA5A214",
+    "styleName": "WOVEN FABRIC CAMEL",
+    "factory": "Vietnam ND",
+    "line": "Line 2",
+    "startDate": "2026-01-22",
+    "targetQty": 3200,
+    "producedQty": 1200,
+    "defectQty": 15,
+    "passQty": 1185,
+    "progress": 37,
+    "status": "생산중",
+    "expectedDate": "2026-01-30",
+    "remarks": "정상 진행"
+  },
+  {
+    "id": "PROD-003",
+    "orderNo": "WO-260127-015",
+    "styleNo": "BKMTM5106",
+    "styleName": "G FABRIC CAMEL",
+    "factory": "Vietnam ND",
+    "line": "Line 3",
+    "startDate": "2026-01-15",
+    "targetQty": 2800,
+    "producedQty": 2800,
+    "defectQty": 32,
+    "passQty": 2768,
+    "progress": 100,
+    "status": "완료",
+    "expectedDate": "2026-01-25",
+    "remarks": "생산 완료"
+  }
+]
